@@ -1,38 +1,59 @@
-use std::io::Error;
-use std::io::Read;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::collections::HashMap;
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
+type Conf = HashMap<String, ConfValue>;
+#[derive(Debug)]
+#[derive(PartialEq)]
 enum ConfValue {
     String(String),
-    Bool(bool),
-    Number(i32),
-    Conf,
+    Conf(Conf),
 }
 
-type Conf = HashMap<String, ConfValue>;
-
 pub fn parse(file_path: &str) -> Conf {
+    let mut map: Conf = HashMap::new();
     if let Ok(lines) = read_lines(file_path) {
         // Consumes the iterator, returns an (Optional) String
         // イテレータを消費し、Option型のStringを返す。
         for line in lines.flatten() {
-            println!("line {}", line);
             let key_value = parse_line(&line);
             if key_value.is_none() {
                 continue;
             }
-            println!("parse_line {:?}", key_value);
+            let (key, value): (&str, &str) = key_value.unwrap();
+            add_value(&mut map, key, value);
         }
     }
-    let map: Conf = HashMap::new();
     map
+}
+
+fn add_value(map: &mut Conf, key: &str, value: &str) {
+    let binding = key.splitn(2, '.').collect::<Vec<&str>>();
+    let keys = binding.as_slice();
+    if keys.len() == 1 {
+        map.insert(key.to_string(), ConfValue::String(value.to_string()));
+        return;
+    }
+    // キーがネストしているとき
+    if map.contains_key(keys[0]) {
+        let conf_value: &mut ConfValue = map.get_mut(keys[0]).unwrap();
+        match conf_value {
+            ConfValue::String(ref _s) => {
+                let mut child_map: Conf = HashMap::new();
+                add_value(&mut child_map, keys[1], value);
+                map.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+            },
+            // すでにある値がMapだった場合
+            ConfValue::Conf(ref mut child_map ) => {
+                add_value(child_map, keys[1], value);
+            },
+        }
+    } else {
+        let mut child_map: Conf = HashMap::new();
+        add_value(&mut child_map, keys[1], value);
+        map.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+    }
 }
 
 type KeyValue<'a> = (&'a str, &'a str);
@@ -56,21 +77,6 @@ fn parse_line(line: &str) -> Option<KeyValue<'_>> {
     Some((key, value))
 }
 
-
-/*
-1. パスを受け取る（or ファイルインスタンスを受け取る）
-2. ファイルを読み込む
-3. 1行ずつパースしてHashMapにいれる
-    # か ; で始まる行はコメント
-4. 
- */
-fn load_file(file_path: &str) -> Result<String, Error> {
-    let mut f = File::options().read(true).open(file_path)?;
-    let mut s = String::new();
-    let _ = f.read_to_string(&mut s);
-    Ok(s)
-}
-
 fn read_lines<P>(file_path: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where P: AsRef<Path>, {
     let file = File::options().read(true).open(file_path)?;
@@ -82,10 +88,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_read_file_and_convert_to_string() {
+    fn can_read_file() {
         // ファイルを読み込んで内容を確認
-        let _ = parse("tests/case-1.conf");
-        // assert!(result.is_ok());
-        // assert_eq!(result.unwrap(), "endpoint = localhost:3000\ndebug = true\nlog.file = /var/log/console.log\n");
+        let map: HashMap<String, ConfValue> = parse("tests/case-1.conf");
+        assert_eq!(map, HashMap::<String, ConfValue>::from([
+            ("endpoint".to_string(), ConfValue::String("localhost:3000".to_string())),
+            ("log".to_string(), ConfValue::Conf(HashMap::from([(
+                "file".to_string(), ConfValue::String("/var/log/console.log".to_string()),
+            )]))),
+            ("debug".to_string(), ConfValue::String("true".to_string())),
+        ]));
     }
 }
