@@ -90,13 +90,20 @@ mod tests {
     #[test]
     fn can_read_file() {
         // ファイルを読み込んで内容を確認
-        let map: HashMap<String, ConfValue> = parse("tests/case-1.conf");
-        assert_eq!(map, HashMap::<String, ConfValue>::from([
+        assert_eq!(parse("tests/case-1.conf"), HashMap::<String, ConfValue>::from([
             ("endpoint".to_string(), ConfValue::String("localhost:3000".to_string())),
-            ("log".to_string(), ConfValue::Conf(HashMap::from([(
-                "file".to_string(), ConfValue::String("/var/log/console.log".to_string()),
-            )]))),
+            ("log".to_string(), ConfValue::Conf(HashMap::from([
+                ("file".to_string(), ConfValue::String("/var/log/console.log".to_string()),)
+            ]))),
             ("debug".to_string(), ConfValue::String("true".to_string())),
+        ]));
+
+        assert_eq!(parse("tests/case-2.conf"), HashMap::<String, ConfValue>::from([
+            ("endpoint".to_string(), ConfValue::String("localhost:3000".to_string())),
+            ("log".to_string(), ConfValue::Conf(HashMap::from([
+                ("file".to_string(), ConfValue::String("/var/log/console.log".to_string()),),
+                ("name".to_string(), ConfValue::String("default.log".to_string())),
+            ]))),
         ]));
     }
 }
