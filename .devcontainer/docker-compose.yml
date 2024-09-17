@@ -1,0 +1,8 @@
+services:
+  rust_devcontainer:
+    image: mcr.microsoft.com/devcontainers/rust:1
+    restart: always
+    tty: true
+    volumes:
+      - ../:/workspace
+    working_dir: /workspace
