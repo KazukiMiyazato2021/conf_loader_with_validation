@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "conf_loader"
+name = "conf_loader_with_validation"
 version = "0.1.0"
 dependencies = [
  "regex",
