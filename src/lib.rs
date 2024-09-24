@@ -20,13 +20,40 @@ enum ConfValue {
     Conf(Conf),
 }
 
+impl PartialEq for ConfValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ConfValue::StrValue(a), ConfValue::StrValue(b)) => a == b,
+            (ConfValue::BoolValue(a), ConfValue::BoolValue(b)) => a == b,
+            (ConfValue::NumberValue(a), ConfValue::NumberValue(b)) => a == b,
+            (ConfValue::Conf(a), ConfValue::Conf(b)) => {
+                // Compare the HashMaps manually
+                if a.len() != b.len() {
+                    return false;
+                }
+                for (key, val_a) in a {
+                    if let Some(val_b) = b.get(key) {
+                        if !val_a.as_ref().eq(val_b.as_ref()) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            },
+            _ => false,
+        }
+    }
+}
+
 impl Value<ConfValue> for ConfValue {
     fn as_mut(&mut self) -> &mut ConfValue {
         self
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum SchemaType {
     String,
     Bool,
@@ -193,32 +220,36 @@ mod tests {
     use super::*;
 
 
-    // #[test]
-    // fn can_read_file() {
-    //     // ファイルを読み込んで内容を確認
-    //     assert_eq!(parse("tests/case-1.conf"), HashMap::<String, ConfValue>::from([
-    //         ("endpoint".to_string(), ConfValue::StrValue("localhost:3000".to_string())),
-    //         ("log".to_string(), ConfValue::Conf(HashMap::from([
-    //             ("file".to_string(), ConfValue::StrValue("/var/log/console.log".to_string()),)
-    //         ]))),
-    //         ("debug".to_string(), ConfValue::StrValue("true".to_string())),
-    //     ]));
+    #[test]
+    fn can_read_file() {
+        // ファイルを読み込んで内容を確認
+        let result1 = parse("tests/case-1.conf", Some("tests/data.schema"));
+        assert!(result1.is_ok());
+        assert_eq!(result1.unwrap(), HashMap::<String, Box<dyn Value<ConfValue>>>::from([
+            ("endpoint".to_string(), Box::new(ConfValue::StrValue("localhost:3000".to_string()))),
+            ("log".to_string(), Box::new(ConfValue::Conf(HashMap::<String, Box<dyn Value<ConfValue>>>::from([
+                ("file".to_string(), Box::new(ConfValue::StrValue("/var/log/console.log".to_string())))
+            ])))),
+            ("debug".to_string(), Box::new(ConfValue::StrValue("true".to_string()))),
+        ]));
 
-    //     assert_eq!(parse("tests/case-2.conf"), HashMap::<String, ConfValue>::from([
-    //         ("endpoint".to_string(), ConfValue::StrValue("localhost:3000".to_string())),
-    //         ("log".to_string(), ConfValue::Conf(HashMap::from([
-    //             ("file".to_string(), ConfValue::StrValue("/var/log/console.log".to_string()),),
-    //             ("name".to_string(), ConfValue::StrValue("default.log".to_string())),
-    //         ]))),
-    //     ]));
-    // }
+        // assert_eq!(parse("tests/case-2.conf", None), HashMap::<String, ConfValue>::from([
+        //     ("endpoint".to_string(), ConfValue::StrValue("localhost:3000".to_string())),
+        //     ("log".to_string(), ConfValue::Conf(HashMap::from([
+        //         ("file".to_string(), ConfValue::StrValue("/var/log/console.log".to_string()),),
+        //         ("name".to_string(), ConfValue::StrValue("default.log".to_string())),
+        //     ]))),
+        // ]));
+    }
     #[test]
     fn can_read_schema() {
         assert_eq!(parse_schema_line("log.file -> string"), Some(("log.file", "string")));
         let result = parse_schema("tests/data.schema");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), HashMap<String, SchemaType>::from([
-            ("hoge".to_string(), SchemaType::String("hoge".to_string()))
+        assert_eq!(result.unwrap(), HashMap::<String, SchemaType>::from([
+            ("endpoint".to_string(), SchemaType::String),
+            ("debug".to_string(), SchemaType::Bool),
+            ("log.file".to_string(), SchemaType::String),
         ]));
     }
 }
