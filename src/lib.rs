@@ -6,8 +6,11 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use regex::Regex;
 use std::error::Error;
+use std::ptr;
+use std::any::Any;
 
 trait Value<T>: Debug {
+    fn as_any(&self) -> &dyn Any;
     fn as_mut(&mut self) -> &mut T;
 }
 
@@ -27,20 +30,9 @@ impl PartialEq for ConfValue {
             (ConfValue::BoolValue(a), ConfValue::BoolValue(b)) => a == b,
             (ConfValue::NumberValue(a), ConfValue::NumberValue(b)) => a == b,
             (ConfValue::Conf(a), ConfValue::Conf(b)) => {
-                // Compare the HashMaps manually
-                if a.len() != b.len() {
-                    return false;
-                }
-                for (key, val_a) in a {
-                    if let Some(val_b) = b.get(key) {
-                        if !val_a.as_ref().eq(val_b.as_ref()) {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-                true
+                let ptr_a = a as *const Conf;
+                let ptr_b = b as *const Conf;
+                ptr::eq(ptr_a, ptr_b)
             },
             _ => false,
         }
@@ -48,8 +40,21 @@ impl PartialEq for ConfValue {
 }
 
 impl Value<ConfValue> for ConfValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
     fn as_mut(&mut self) -> &mut ConfValue {
         self
+    }
+}
+
+impl PartialEq for dyn Value<ConfValue> {
+    fn eq(&self, other: &Self) -> bool {
+        if let (Some(self_val), Some(other_val)) = (self.as_any().downcast_ref::<ConfValue>(), other.as_any().downcast_ref::<ConfValue>()) {
+            self_val == other_val
+        } else {
+            false
+        }
     }
 }
 
@@ -219,18 +224,17 @@ where P: AsRef<Path>, {
 mod tests {
     use super::*;
 
-
     #[test]
     fn can_read_file() {
         // ファイルを読み込んで内容を確認
         let result1 = parse("tests/case-1.conf", Some("tests/data.schema"));
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap(), HashMap::<String, Box<dyn Value<ConfValue>>>::from([
-            ("endpoint".to_string(), Box::new(ConfValue::StrValue("localhost:3000".to_string()))),
+            ("endpoint".to_string(), Box::new(ConfValue::StrValue("localhost:3000".to_string())) as Box<dyn Value<ConfValue>>),
+            ("debug".to_string(), Box::new(ConfValue::StrValue("true".to_string())) as Box<dyn Value<ConfValue>>),
             ("log".to_string(), Box::new(ConfValue::Conf(HashMap::<String, Box<dyn Value<ConfValue>>>::from([
-                ("file".to_string(), Box::new(ConfValue::StrValue("/var/log/console.log".to_string())))
-            ])))),
-            ("debug".to_string(), Box::new(ConfValue::StrValue("true".to_string()))),
+                ("file".to_string(), Box::new(ConfValue::StrValue("/var/log/console.log".to_string())) as Box<dyn Value<ConfValue>>)
+            ]))) as Box<dyn Value<ConfValue>>),
         ]));
 
         // assert_eq!(parse("tests/case-2.conf", None), HashMap::<String, ConfValue>::from([
