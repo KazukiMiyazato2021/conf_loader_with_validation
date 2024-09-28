@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use regex::Regex;
 use std::error::Error;
@@ -14,7 +14,7 @@ trait Value<T>: Debug {
     fn as_mut(&mut self) -> &mut T;
 }
 
-type Conf = HashMap<String, Box<dyn Value<ConfValue>>>;
+type Conf = BTreeMap<String, Box<dyn Value<ConfValue>>>;
 #[derive(Debug)]
 enum ConfValue {
     StrValue(String),
@@ -79,15 +79,15 @@ impl FromStr for SchemaType {
 }
 
 pub fn parse(file_path: &str, schema_path: Option<&str>) -> Result<Conf, Box<dyn Error>> {
-    let schema: HashMap<String, SchemaType> = match schema_path {
+    let schema: BTreeMap<String, SchemaType> = match schema_path {
         Some(path) => parse_schema(path)?,
-        None => HashMap::new(),
+        None => BTreeMap::new(),
     };
     Ok(parse_conf(file_path, schema))
 }
 
-fn parse_conf(file_path: &str, schema: HashMap<String, SchemaType>) -> Conf {
-    let mut map: Conf = HashMap::new();
+fn parse_conf(file_path: &str, schema: BTreeMap<String, SchemaType>) -> Conf {
+    let mut map: Conf = BTreeMap::new();
     if let Ok(lines) = read_lines(file_path) {
         for line in lines.flatten() {
             let key_value = parse_line(&line);
@@ -123,8 +123,8 @@ fn validate(s: &str, t: &SchemaType) -> Result<Box<dyn Value<ConfValue>>, String
     }
 }
 
-fn parse_schema(file_path: &str) -> Result<HashMap<String, SchemaType>, Box<dyn Error>> {
-    let mut map: HashMap<String, SchemaType> = HashMap::new();
+fn parse_schema(file_path: &str) -> Result<BTreeMap<String, SchemaType>, Box<dyn Error>> {
+    let mut map: BTreeMap<String, SchemaType> = BTreeMap::new();
     if let Ok(lines) = read_lines(file_path) {
         for line in lines.flatten() {
             let key_value = parse_schema_line(&line);
@@ -155,13 +155,13 @@ fn add_value(map: &mut Conf, key: &str, value: Box<dyn Value<ConfValue>>) {
                 add_value(child_map, keys[1], value);
             },
             _ => {
-                let mut child_map: Conf = HashMap::new();
+                let mut child_map: Conf = BTreeMap::new();
                 add_value(&mut child_map, keys[1], value);
                 map.insert(keys[0].to_string(), Box::new(ConfValue::Conf(child_map)));
             },
         }
     } else {
-        let mut child_map: Conf = HashMap::new();
+        let mut child_map: Conf = BTreeMap::new();
         add_value(&mut child_map, keys[1], value);
         map.insert(keys[0].to_string(), Box::new(ConfValue::Conf(child_map)));
     }
@@ -229,17 +229,17 @@ mod tests {
         // ファイルを読み込んで内容を確認
         let result1 = parse("tests/case-1.conf", Some("tests/data.schema"));
         assert!(result1.is_ok());
-        assert_eq!(result1.unwrap(), HashMap::<String, Box<dyn Value<ConfValue>>>::from([
+        assert_eq!(result1.unwrap(), BTreeMap::<String, Box<dyn Value<ConfValue>>>::from([
             ("endpoint".to_string(), Box::new(ConfValue::StrValue("localhost:3000".to_string())) as Box<dyn Value<ConfValue>>),
-            ("debug".to_string(), Box::new(ConfValue::StrValue("true".to_string())) as Box<dyn Value<ConfValue>>),
-            ("log".to_string(), Box::new(ConfValue::Conf(HashMap::<String, Box<dyn Value<ConfValue>>>::from([
+            ("debug".to_string(), Box::new(ConfValue::BoolValue(true)) as Box<dyn Value<ConfValue>>),
+            ("log".to_string(), Box::new(ConfValue::Conf(BTreeMap::<String, Box<dyn Value<ConfValue>>>::from([
                 ("file".to_string(), Box::new(ConfValue::StrValue("/var/log/console.log".to_string())) as Box<dyn Value<ConfValue>>)
             ]))) as Box<dyn Value<ConfValue>>),
         ]));
 
-        // assert_eq!(parse("tests/case-2.conf", None), HashMap::<String, ConfValue>::from([
+        // assert_eq!(parse("tests/case-2.conf", None), BTreeMap::<String, ConfValue>::from([
         //     ("endpoint".to_string(), ConfValue::StrValue("localhost:3000".to_string())),
-        //     ("log".to_string(), ConfValue::Conf(HashMap::from([
+        //     ("log".to_string(), ConfValue::Conf(BTreeMap::from([
         //         ("file".to_string(), ConfValue::StrValue("/var/log/console.log".to_string()),),
         //         ("name".to_string(), ConfValue::StrValue("default.log".to_string())),
         //     ]))),
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(parse_schema_line("log.file -> string"), Some(("log.file", "string")));
         let result = parse_schema("tests/data.schema");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), HashMap::<String, SchemaType>::from([
+        assert_eq!(result.unwrap(), BTreeMap::<String, SchemaType>::from([
             ("endpoint".to_string(), SchemaType::String),
             ("debug".to_string(), SchemaType::Bool),
             ("log.file".to_string(), SchemaType::String),
