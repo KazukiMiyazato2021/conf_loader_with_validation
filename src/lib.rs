@@ -50,17 +50,17 @@ impl ConfValue {
         }
     }
 
-    fn as_bool(&self) -> Result<&bool, TypeMismatchError> {
+    fn as_bool(&self) -> Result<bool, TypeMismatchError> {
         if let ConfValue::BoolValue(value) = self {
-            Ok(value)
+            Ok(*value)
         } else {
             Err(TypeMismatchError)
         }
     }
 
-    fn as_number(&self) -> Result<&f64, TypeMismatchError> {
+    fn as_number(&self) -> Result<f64, TypeMismatchError> {
         if let ConfValue::NumberValue(value) = self {
-            Ok(value)
+            Ok(*value)
         } else {
             Err(TypeMismatchError)
         }
@@ -353,27 +353,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn can_read_file() {
+    fn can_parse_conf_with_schema() {
         // ファイルを読み込んで内容を確認
-        let result1: Result<ConfList, Box<dyn Error>> = parse("tests/case-1.conf", Some("tests/data.schema"));
-        assert!(result1.is_ok());
-        assert_eq!(result1.unwrap().to_vec(), vec![
+        let result: Result<ConfList, Box<dyn Error>> = parse("tests/case-1.conf", Some("tests/data.schema"));
+        assert!(result.is_ok());
+        let mut conf = result.unwrap();
+        assert_eq!(conf.to_vec(), vec![
             ("endpoint".to_string(), ConfVecValue::StrValue("localhost:3000".to_string())),
             ("debug".to_string(), ConfVecValue::BoolValue(true)),
             ("log".to_string(), ConfVecValue::Conf(vec![
                 ("file".to_string(), ConfVecValue::StrValue("/var/log/console.log".to_string()))
             ])),
         ]);
+        assert!(conf.contains_key("endpoint"));
+        assert!(conf.contains_key("log"));
+        assert_eq!(conf.get("endpoint").unwrap().as_str().unwrap(), &"localhost:3000".to_string());
+        assert!(conf.get("endpoint").unwrap().as_bool().is_err());
+        assert!(conf.get("debug").unwrap().as_bool().unwrap());
     }
     #[test]
-    fn can_read_schema() {
-        assert_eq!(parse_schema_line("log.file -> string"), Some(("log.file", "string")));
-        let result = parse_schema("tests/data.schema");
+    fn can_parse_conf_without_schema() {
+        // ファイルを読み込んで内容を確認
+        let result: Result<ConfList, Box<dyn Error>> = parse("tests/case-1.conf", None);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), HashMap::<String, SchemaType>::from([
-            ("endpoint".to_string(), SchemaType::String),
-            ("debug".to_string(), SchemaType::Bool),
-            ("log.file".to_string(), SchemaType::String),
-        ]));
+        assert_eq!(result.as_ref().unwrap().to_vec(), vec![
+            ("endpoint".to_string(), ConfVecValue::StrValue("localhost:3000".to_string())),
+            ("debug".to_string(), ConfVecValue::StrValue("true".to_string())),
+            ("log".to_string(), ConfVecValue::Conf(vec![
+                ("file".to_string(), ConfVecValue::StrValue("/var/log/console.log".to_string()))
+            ])),
+        ]);
     }
 }
