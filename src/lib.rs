@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::str::FromStr;
 use regex::Regex;
 use std::error::Error;
@@ -27,6 +28,16 @@ enum ConfValue {
     BoolValue(bool),
     NumberValue(f64),
     Conf(Box<ConfList>), // Linked List 形式に変更
+}
+
+// テスト用
+type ConfVec = Vec<(String, ConfVecValue)>;
+#[derive(Debug, PartialEq)]
+enum ConfVecValue {
+    StrValue(String),
+    BoolValue(bool),
+    NumberValue(f64),
+    Conf(ConfVec),
 }
 
 // ConfValue に型指定アクセス用メソッドを追加
@@ -159,6 +170,35 @@ impl ConfList {
             self.insert(keys[0].to_string(), ConfValue::Conf(child_node));
         }
     }
+
+    // テスト用 vecに変換する
+    fn to_vec(&self) -> ConfVec {
+        let mut vec: ConfVec = Vec::new();
+        let mut current = self.head.as_ref();
+
+        while let Some(node) = current {
+            let v = node.value.borrow_mut();
+            let new_value: ConfVecValue = match &*v {
+                ConfValue::Conf(child_node) => {
+                    ConfVecValue::Conf(child_node.to_vec())
+                },
+                ConfValue::StrValue(v) => {
+                    ConfVecValue::StrValue(v.clone())
+                },
+                ConfValue::BoolValue(v) => {
+                    ConfVecValue::BoolValue(*v)
+                },
+                ConfValue::NumberValue(v) => {
+                    ConfVecValue::NumberValue(*v)
+                },
+            };
+            vec.insert(0, (node.key.clone(), new_value));
+            current = node.next.as_ref();
+        }
+
+        vec
+    }
+
 }
 
 #[derive(Debug, PartialEq)]
@@ -317,7 +357,13 @@ mod tests {
         // ファイルを読み込んで内容を確認
         let result1: Result<ConfList, Box<dyn Error>> = parse("tests/case-1.conf", Some("tests/data.schema"));
         assert!(result1.is_ok());
-        assert_eq!(result1.unwrap(), vec!());
+        assert_eq!(result1.unwrap().to_vec(), vec![
+            ("endpoint".to_string(), ConfVecValue::StrValue("localhost:3000".to_string())),
+            ("debug".to_string(), ConfVecValue::BoolValue(true)),
+            ("log".to_string(), ConfVecValue::Conf(vec![
+                ("file".to_string(), ConfVecValue::StrValue("/var/log/console.log".to_string()))
+            ])),
+        ]);
     }
     #[test]
     fn can_read_schema() {
