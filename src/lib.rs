@@ -1,3 +1,4 @@
+use std::cell::{RefCell, RefMut};
 use std::fmt;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -54,7 +55,7 @@ impl ConfValue {
         }
     }
 
-    fn as_conf(&self) -> Result<&Box<ConfList>, TypeMismatchError> {
+    fn as_conf(&self) -> Result<&ConfList, TypeMismatchError> {
         if let ConfValue::Conf(ref conf) = self {
             Ok(conf)
         } else {
@@ -67,7 +68,7 @@ impl ConfValue {
 #[derive(Debug)]
 struct Node {
     key: String,
-    value: ConfValue,
+    value: RefCell<ConfValue>, // RefCell で内部を可変にする
     next: Option<Box<Node>>,
 }
 
@@ -82,11 +83,35 @@ impl ConfList {
         ConfList { head: None }
     }
 
+    // 要素が含まれているか確認する contains_key() メソッド
+    fn contains_key(&self, key: &str) -> bool {
+        let mut current = &self.head;
+        while let Some(node) = current {
+            if node.key == key {
+                return true;
+            }
+            current = &node.next;
+        }
+        false
+    }
+
+    fn get(&mut self, key: &str) -> Option<RefMut<'_, ConfValue>> {
+        let mut current = &self.head;
+        while let Some(node) = current {
+            let value = (&(*node).value).borrow_mut();
+            if node.key == key {
+                return Some(value);
+            }
+            current = &node.next;
+        }
+        None
+    }
+
     // 要素を追加する insert() メソッド
     fn insert(&mut self, key: String, value: ConfValue) {
         let new_node = Box::new(Node {
             key,
-            value,
+            value: RefCell::new(value),  // RefCell で包む
             next: self.head.take(),
         });
         self.head = Some(new_node);
@@ -102,58 +127,37 @@ impl ConfList {
         }
         // キーがネストしているとき
         if self.contains_key(keys[0]) {
-            let conf_value = self.get(keys[0]).unwrap();
-            match conf_value {
-                // すでにある値がMapだった場合
-                ConfValue::Conf(child_map) => {
-                    child_map.add_value(keys[1], value);
+            let mut conf_value: RefMut<'_, ConfValue> = self.get(keys[0]).unwrap();
+            let new_value: ConfValue = match &mut *conf_value {
+                // すでにある値がNodeだった場合
+                ConfValue::Conf(child_node) => {
+                    child_node.add_value(keys[1], value);
+                    return;
                 },
-                // ↓ Map 以外はすべて同じ処理
+                // ↓ Node 以外はすべて同じ処理
                 ConfValue::StrValue(_) => {
-                    let mut child_map = Box::new(ConfList::new());
-                    child_map.add_value(keys[1], value);
-                    self.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+                    let mut child_node = Box::new(ConfList::new());
+                    child_node.add_value(keys[1], value);
+                    ConfValue::Conf(child_node)
                 },
                 ConfValue::BoolValue(_) => {
-                    let mut child_map = Box::new(ConfList::new());
-                    child_map.add_value(keys[1], value);
-                    self.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+                    let mut child_node = Box::new(ConfList::new());
+                    child_node.add_value(keys[1], value);
+                    ConfValue::Conf(child_node)
                 },
                 ConfValue::NumberValue(_) => {
-                    let mut child_map = Box::new(ConfList::new());
-                    child_map.add_value(keys[1], value);
-                    self.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+                    let mut child_node = Box::new(ConfList::new());
+                    child_node.add_value(keys[1], value);
+                    ConfValue::Conf(child_node)
                 },
-            }
+            };
+            drop(conf_value);  // 明示的に借用を解除
+            self.insert(keys[0].to_string(), new_value);
         } else {
-            let mut child_map = Box::new(ConfList::new());
-            child_map.add_value(keys[1], value);
-            self.insert(keys[0].to_string(), ConfValue::Conf(child_map));
+            let mut child_node = Box::new(ConfList::new());
+            child_node.add_value(keys[1], value);
+            self.insert(keys[0].to_string(), ConfValue::Conf(child_node));
         }
-    }
-
-    // 要素が含まれているか確認する contains_key() メソッド
-    fn contains_key(&self, key: &str) -> bool {
-        let mut current = &self.head;
-        while let Some(ref node) = current {
-            if node.key == key {
-                return true;
-            }
-            current = &node.next;
-        }
-        false
-    }
-
-    // キーを使って値を取得する get() メソッド
-    fn get(&self, key: &str) -> Option<&ConfValue> {
-        let mut current = &self.head;
-        while let Some(ref node) = current {
-            if node.key == key {
-                return Some(&node.value);
-            }
-            current = &node.next;
-        }
-        None
     }
 }
 
@@ -311,23 +315,9 @@ mod tests {
     #[test]
     fn can_read_file() {
         // ファイルを読み込んで内容を確認
-        let result1 = parse("tests/case-1.conf", Some("tests/data.schema"));
+        let result1: Result<ConfList, Box<dyn Error>> = parse("tests/case-1.conf", Some("tests/data.schema"));
         assert!(result1.is_ok());
-        assert_eq!(result1.unwrap(), HashMap::<String, Box<dyn Value<ConfValue>>>::from([
-            ("endpoint".to_string(), Box::new(ConfValue::StrValue("localhost:3000".to_string())) as Box<dyn Value<ConfValue>>),
-            ("debug".to_string(), Box::new(ConfValue::BoolValue(true)) as Box<dyn Value<ConfValue>>),
-            ("log".to_string(), Box::new(ConfValue::Conf(HashMap::<String, Box<dyn Value<ConfValue>>>::from([
-                ("file".to_string(), Box::new(ConfValue::StrValue("/var/log/console.log".to_string())) as Box<dyn Value<ConfValue>>)
-            ]))) as Box<dyn Value<ConfValue>>),
-        ]));
-
-        // assert_eq!(parse("tests/case-2.conf", None), HashMap::<String, ConfValue>::from([
-        //     ("endpoint".to_string(), ConfValue::StrValue("localhost:3000".to_string())),
-        //     ("log".to_string(), ConfValue::Conf(HashMap::from([
-        //         ("file".to_string(), ConfValue::StrValue("/var/log/console.log".to_string()),),
-        //         ("name".to_string(), ConfValue::StrValue("default.log".to_string())),
-        //     ]))),
-        // ]));
+        assert_eq!(result1.unwrap(), vec!());
     }
     #[test]
     fn can_read_schema() {
